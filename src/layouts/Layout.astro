@@ -34,6 +34,10 @@ const { title = 'SES 邮件查看器' } = Astro.props;
 	* {
 		box-sizing: border-box;
 	}
+	/* Ensure the `hidden` attribute always wins over component `display` rules. */
+	[hidden] {
+		display: none !important;
+	}
 	html,
 	body {
 		margin: 0;
