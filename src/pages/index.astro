@@ -145,7 +145,7 @@ export const prerender = false;
 				<span class="email-subject">${esc(mail.subject) || '(无标题)'}</span>
 				<span class="email-date">${fmtDate(mail.date)}</span>`;
 			item.addEventListener('click', () => {
-				container.querySelectorAll('.email.active').forEach((e) => e.classList.remove('active'));
+				tree.querySelectorAll('.email.active').forEach((e) => e.classList.remove('active'));
 				item.classList.add('active');
 				openEmail(mail.id);
 			});
