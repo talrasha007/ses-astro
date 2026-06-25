@@ -53,10 +53,47 @@ export async function parseMeta(raw: ArrayBuffer): Promise<EmailMeta> {
 	};
 }
 
+function attachmentBytes(content: unknown): ArrayBuffer {
+	if (content instanceof ArrayBuffer) return content;
+	return new TextEncoder().encode(String(content)).buffer;
+}
+
+function bytesToBase64(buf: ArrayBuffer): string {
+	const bytes = new Uint8Array(buf);
+	let bin = '';
+	const chunk = 0x8000; // encode in chunks to avoid call-stack limits
+	for (let i = 0; i < bytes.length; i += chunk) {
+		bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+	}
+	return btoa(bin);
+}
+
 export async function parseFull(raw: ArrayBuffer): Promise<FullEmail> {
 	const email = await PostalMime.parse(raw);
-	const attachments: AttachmentMeta[] = (email.attachments ?? []).map(
-		(att, index) => ({
+	const allAttachments = email.attachments ?? [];
+
+	// Inline images are referenced from the HTML body as `cid:<Content-ID>`.
+	// A sandboxed iframe can't resolve those, so rewrite each reference into a
+	// self-contained data: URI, and drop that attachment from the download list.
+	let html = email.html ?? null;
+	const inlined = new Set<number>();
+	if (html) {
+		allAttachments.forEach((att, index) => {
+			if (!att.contentId) return;
+			const cid = att.contentId.replace(/^<|>$/g, '');
+			const token = `cid:${cid}`;
+			if (!html!.includes(token)) return;
+			const mime = att.mimeType || 'application/octet-stream';
+			const dataUri = `data:${mime};base64,${bytesToBase64(attachmentBytes(att.content))}`;
+			html = html!.split(token).join(dataUri);
+			inlined.add(index);
+		});
+	}
+
+	const attachments: AttachmentMeta[] = [];
+	allAttachments.forEach((att, index) => {
+		if (inlined.has(index)) return; // now rendered inline in the body
+		attachments.push({
 			index,
 			filename: att.filename || `attachment-${index + 1}`,
 			mimeType: att.mimeType || 'application/octet-stream',
@@ -66,15 +103,16 @@ export async function parseFull(raw: ArrayBuffer): Promise<FullEmail> {
 					: typeof att.content === 'string'
 						? att.content.length
 						: 0,
-		}),
-	);
+		});
+	});
+
 	return {
 		messageId: email.messageId ?? null,
 		from: formatAddr(email.from),
 		to: formatAddrs(email.to),
 		subject: email.subject ?? null,
 		date: toTimestamp(email.date),
-		html: email.html ?? null,
+		html,
 		text: email.text ?? null,
 		attachments,
 	};
@@ -88,17 +126,10 @@ export async function getAttachment(
 	const email = await PostalMime.parse(raw);
 	const att = (email.attachments ?? [])[index];
 	if (!att) return null;
-	let content: ArrayBuffer;
-	if (att.content instanceof ArrayBuffer) {
-		content = att.content;
-	} else {
-		// String content (e.g. base64/text) — encode to bytes.
-		content = new TextEncoder().encode(String(att.content)).buffer;
-	}
 	return {
 		filename: att.filename || `attachment-${index + 1}`,
 		mimeType: att.mimeType || 'application/octet-stream',
-		content,
+		content: attachmentBytes(att.content),
 	};
 }
 
