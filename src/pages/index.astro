@@ -1,0 +1,343 @@
+---
+import Layout from '../layouts/Layout.astro';
+export const prerender = false;
+---
+
+<Layout title="SES 邮件查看器">
+	<div class="app">
+		<aside class="sidebar">
+			<header class="sidebar-head">
+				<span class="logo">📮 SES 邮件</span>
+				<a class="cfg-link" href="/configs" title="配置">⚙︎</a>
+			</header>
+			<div id="tree" class="tree">
+				<p class="placeholder">加载中…</p>
+			</div>
+		</aside>
+
+		<main class="reader">
+			<div id="reader-empty" class="reader-empty">
+				<p>从左侧选择一封邮件查看内容</p>
+			</div>
+			<article id="reader-content" class="reader-content" hidden>
+				<header class="mail-head">
+					<h1 id="mail-subject"></h1>
+					<dl class="mail-meta">
+						<div><dt>发件人</dt><dd id="mail-from"></dd></div>
+						<div><dt>收件人</dt><dd id="mail-to"></dd></div>
+						<div><dt>时间</dt><dd id="mail-date"></dd></div>
+					</dl>
+					<div id="mail-attachments" class="attachments"></div>
+				</header>
+				<iframe
+					id="mail-body"
+					class="mail-body"
+					sandbox=""
+					referrerpolicy="no-referrer"
+					title="邮件正文"></iframe>
+			</article>
+		</main>
+	</div>
+</Layout>
+
+<script>
+	const tree = document.getElementById('tree')!;
+	const readerEmpty = document.getElementById('reader-empty')!;
+	const readerContent = document.getElementById('reader-content') as HTMLElement;
+
+	function fmtDate(ts: number | null): string {
+		if (!ts) return '—';
+		return new Date(ts).toLocaleString();
+	}
+	function esc(s: string | null): string {
+		return (s ?? '').replace(/[&<>"]/g, (c) =>
+			({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!,
+		);
+	}
+
+	interface Config { id: number; alias: string; }
+	interface Email { id: number; to_addr: string | null; from_addr: string | null; subject: string | null; date: number | null; }
+	interface SyncResult { error?: string; errors?: string[]; added?: number; total?: number; }
+	interface Attachment { index: number; filename: string; mimeType: string; size: number; }
+	interface MailData {
+		error?: string; from: string | null; to: string | null; subject: string | null;
+		date: number | null; html: string | null; text: string | null; attachments: Attachment[];
+	}
+
+	async function loadConfigs() {
+		const res = await fetch('/api/configs');
+		const configs: Config[] = await res.json();
+		tree.innerHTML = '';
+		if (configs.length === 0) {
+			tree.innerHTML =
+				'<p class="placeholder">尚无配置，<a href="/configs">前往添加</a></p>';
+			return;
+		}
+		for (const cfg of configs) tree.appendChild(renderConfig(cfg));
+	}
+
+	function renderConfig(cfg: Config): HTMLElement {
+		const node = document.createElement('div');
+		node.className = 'cfg';
+		node.innerHTML = `
+			<div class="cfg-row">
+				<button class="cfg-toggle" aria-expanded="false">
+					<span class="caret">▸</span><span class="alias">${esc(cfg.alias)}</span>
+				</button>
+				<button class="cfg-refresh" title="刷新">⟳</button>
+			</div>
+			<div class="emails" hidden></div>`;
+
+		const toggle = node.querySelector('.cfg-toggle') as HTMLButtonElement;
+		const refresh = node.querySelector('.cfg-refresh') as HTMLButtonElement;
+		const emailsEl = node.querySelector('.emails') as HTMLElement;
+		const caret = node.querySelector('.caret') as HTMLElement;
+		let loaded = false;
+
+		toggle.addEventListener('click', async () => {
+			const open = emailsEl.hidden;
+			emailsEl.hidden = !open;
+			toggle.setAttribute('aria-expanded', String(open));
+			caret.textContent = open ? '▾' : '▸';
+			if (open && !loaded) {
+				await loadEmails(cfg.id, emailsEl);
+				loaded = true;
+			}
+		});
+
+		refresh.addEventListener('click', async () => {
+			refresh.disabled = true;
+			refresh.classList.add('spin');
+			try {
+				const res = await fetch(`/api/configs/${cfg.id}/sync`, { method: 'POST' });
+				const data = (await res.json()) as SyncResult;
+				if (!res.ok) { alert('刷新失败：' + (data.error || res.status)); return; }
+				emailsEl.hidden = false;
+				toggle.setAttribute('aria-expanded', 'true');
+				caret.textContent = '▾';
+				await loadEmails(cfg.id, emailsEl);
+				loaded = true;
+				if (data.errors?.length) console.warn('部分邮件解析失败', data.errors);
+			} finally {
+				refresh.disabled = false;
+				refresh.classList.remove('spin');
+			}
+		});
+
+		return node;
+	}
+
+	async function loadEmails(configId: number, container: HTMLElement) {
+		container.innerHTML = '<p class="placeholder small">加载中…</p>';
+		const res = await fetch(`/api/emails?configId=${configId}`);
+		const emails: Email[] = await res.json();
+		if (emails.length === 0) {
+			container.innerHTML =
+				'<p class="placeholder small">暂无邮件，点击 ⟳ 刷新</p>';
+			return;
+		}
+		container.innerHTML = '';
+		for (const mail of emails) {
+			const item = document.createElement('button');
+			item.className = 'email';
+			item.innerHTML = `
+				<span class="email-to">${esc(mail.to_addr) || '(无收件人)'}</span>
+				<span class="email-subject">${esc(mail.subject) || '(无标题)'}</span>
+				<span class="email-date">${fmtDate(mail.date)}</span>`;
+			item.addEventListener('click', () => {
+				container.querySelectorAll('.email.active').forEach((e) => e.classList.remove('active'));
+				item.classList.add('active');
+				openEmail(mail.id);
+			});
+			container.appendChild(item);
+		}
+	}
+
+	async function openEmail(id: number) {
+		readerEmpty.hidden = true;
+		readerContent.hidden = false;
+		(document.getElementById('mail-subject') as HTMLElement).textContent = '加载中…';
+		(document.getElementById('mail-from') as HTMLElement).textContent = '';
+		(document.getElementById('mail-to') as HTMLElement).textContent = '';
+		(document.getElementById('mail-date') as HTMLElement).textContent = '';
+		(document.getElementById('mail-attachments') as HTMLElement).innerHTML = '';
+		const frame = document.getElementById('mail-body') as HTMLIFrameElement;
+		frame.srcdoc = '';
+
+		const res = await fetch(`/api/emails/${id}`);
+		const data = (await res.json()) as MailData;
+		if (!res.ok) {
+			(document.getElementById('mail-subject') as HTMLElement).textContent = '加载失败';
+			frame.srcdoc = `<pre>${esc(data.error || '')}</pre>`;
+			return;
+		}
+
+		(document.getElementById('mail-subject') as HTMLElement).textContent = data.subject || '(无标题)';
+		(document.getElementById('mail-from') as HTMLElement).textContent = data.from || '—';
+		(document.getElementById('mail-to') as HTMLElement).textContent = data.to || '—';
+		(document.getElementById('mail-date') as HTMLElement).textContent = fmtDate(data.date);
+
+		const attEl = document.getElementById('mail-attachments') as HTMLElement;
+		if (data.attachments?.length) {
+			attEl.innerHTML =
+				'<span class="att-label">附件：</span>' +
+				data.attachments
+					.map(
+						(a: { index: number; filename: string; size: number }) =>
+							`<a class="att" href="/api/emails/${id}/attachments/${a.index}" download>📎 ${esc(a.filename)} <small>(${fmtSize(a.size)})</small></a>`,
+					)
+					.join('');
+		}
+
+		if (data.html) {
+			frame.srcdoc = data.html;
+		} else if (data.text) {
+			frame.srcdoc = `<pre style="white-space:pre-wrap;font-family:inherit;margin:0;">${esc(data.text)}</pre>`;
+		} else {
+			frame.srcdoc = '<p style="color:#888">（无正文）</p>';
+		}
+	}
+
+	function fmtSize(bytes: number): string {
+		if (!bytes) return '0 B';
+		const units = ['B', 'KB', 'MB', 'GB'];
+		let i = 0, n = bytes;
+		while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+		return `${n.toFixed(i ? 1 : 0)} ${units[i]}`;
+	}
+
+	loadConfigs();
+</script>
+
+<style>
+	.app {
+		display: grid;
+		grid-template-columns: 320px 1fr;
+		height: 100vh;
+	}
+	.sidebar {
+		border-right: 1px solid var(--border);
+		background: var(--panel);
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+	.sidebar-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 12px 14px;
+		border-bottom: 1px solid var(--border);
+	}
+	.logo { font-weight: 700; }
+	.cfg-link {
+		text-decoration: none;
+		font-size: 18px;
+		color: var(--muted);
+	}
+	.tree {
+		overflow-y: auto;
+		padding: 6px;
+		flex: 1;
+	}
+	.placeholder {
+		color: var(--muted);
+		padding: 12px;
+	}
+	.placeholder.small { padding: 8px 12px; font-size: 13px; }
+
+	.cfg-row {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.cfg-toggle {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		background: none;
+		border: none;
+		padding: 8px 6px;
+		text-align: left;
+		border-radius: 6px;
+		color: var(--text);
+		font-weight: 600;
+	}
+	.cfg-toggle:hover { background: var(--bg); }
+	.caret { width: 12px; color: var(--muted); font-size: 11px; }
+	.cfg-refresh {
+		background: none;
+		border: none;
+		color: var(--muted);
+		font-size: 15px;
+		padding: 6px 8px;
+		border-radius: 6px;
+	}
+	.cfg-refresh:hover { background: var(--bg); color: var(--accent); }
+	.cfg-refresh.spin { animation: spin 0.8s linear infinite; }
+	@keyframes spin { to { transform: rotate(360deg); } }
+
+	.emails {
+		display: flex;
+		flex-direction: column;
+		padding-left: 10px;
+	}
+	.email {
+		display: grid;
+		gap: 2px;
+		background: none;
+		border: none;
+		border-left: 2px solid transparent;
+		text-align: left;
+		padding: 7px 10px;
+		border-radius: 0 6px 6px 0;
+	}
+	.email:hover { background: var(--bg); }
+	.email.active { background: var(--accent-soft); border-left-color: var(--accent); }
+	.email-to { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.email-subject { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.email-date { font-size: 11px; color: var(--muted); }
+
+	.reader { min-width: 0; display: flex; flex-direction: column; }
+	.reader-empty {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--muted);
+	}
+	.reader-content { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+	.mail-head {
+		padding: 18px 24px;
+		border-bottom: 1px solid var(--border);
+		background: var(--panel);
+	}
+	.mail-head h1 { margin: 0 0 10px; font-size: 18px; }
+	.mail-meta { margin: 0; display: grid; gap: 3px; }
+	.mail-meta > div { display: flex; gap: 8px; font-size: 13px; }
+	.mail-meta dt { color: var(--muted); width: 48px; flex: none; margin: 0; }
+	.mail-meta dd { margin: 0; word-break: break-all; }
+	.attachments { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+	.att-label { color: var(--muted); font-size: 13px; }
+	.att {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 4px 10px;
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 16px;
+		font-size: 13px;
+		text-decoration: none;
+		color: var(--text);
+	}
+	.att:hover { border-color: var(--accent); color: var(--accent); }
+	.att small { color: var(--muted); }
+	.mail-body {
+		flex: 1;
+		border: none;
+		width: 100%;
+		background: #fff;
+	}
+</style>

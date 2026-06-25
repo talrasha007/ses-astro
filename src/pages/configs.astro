@@ -1,0 +1,198 @@
+---
+import Layout from '../layouts/Layout.astro';
+export const prerender = false;
+---
+
+<Layout title="S3 配置 · SES 邮件查看器">
+	<div class="page">
+		<header class="page-head">
+			<a class="back" href="/">← 返回</a>
+			<h1>S3 配置</h1>
+		</header>
+
+		<section class="grid">
+			<div class="list-col">
+				<div class="col-head">
+					<h2>已配置</h2>
+					<button id="new-btn" class="btn">+ 新建</button>
+				</div>
+				<div id="list" class="list"><p class="muted">加载中…</p></div>
+			</div>
+
+			<div class="form-col">
+				<form id="form" class="form" hidden>
+					<h2 id="form-title">新建配置</h2>
+					<input type="hidden" id="f-id" />
+					<label>别名<input id="f-alias" required placeholder="例如：生产环境收件箱" /></label>
+					<label>Region<input id="f-region" required placeholder="us-east-1" /></label>
+					<label>Bucket<input id="f-bucket" required placeholder="my-ses-bucket" /></label>
+					<label>Prefix<input id="f-prefix" placeholder="inbound/ （可留空）" /></label>
+					<label>Access Key ID<input id="f-akid" required placeholder="AKIA…" /></label>
+					<label>
+						Secret Access Key
+						<input id="f-secret" type="password" autocomplete="off" placeholder="新建必填；编辑时留空表示不修改" />
+					</label>
+					<div class="form-actions">
+						<button type="submit" class="btn primary">保存</button>
+						<button type="button" id="cancel-btn" class="btn">取消</button>
+					</div>
+					<p id="form-msg" class="msg"></p>
+				</form>
+				<p id="form-hint" class="muted hint">选择左侧配置进行编辑，或点击「新建」。</p>
+			</div>
+		</section>
+	</div>
+</Layout>
+
+<script>
+	interface Config {
+		id: number; alias: string; region: string; bucket: string;
+		prefix: string; access_key_id: string;
+	}
+
+	const listEl = document.getElementById('list')!;
+	const form = document.getElementById('form') as HTMLFormElement;
+	const formHint = document.getElementById('form-hint')!;
+	const formTitle = document.getElementById('form-title')!;
+	const msg = document.getElementById('form-msg')!;
+	const f = {
+		id: document.getElementById('f-id') as HTMLInputElement,
+		alias: document.getElementById('f-alias') as HTMLInputElement,
+		region: document.getElementById('f-region') as HTMLInputElement,
+		bucket: document.getElementById('f-bucket') as HTMLInputElement,
+		prefix: document.getElementById('f-prefix') as HTMLInputElement,
+		akid: document.getElementById('f-akid') as HTMLInputElement,
+		secret: document.getElementById('f-secret') as HTMLInputElement,
+	};
+
+	function esc(s: string): string {
+		return (s ?? '').replace(/[&<>"]/g, (c) =>
+			({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+	}
+
+	async function load() {
+		const res = await fetch('/api/configs');
+		const configs: Config[] = await res.json();
+		if (configs.length === 0) {
+			listEl.innerHTML = '<p class="muted">尚无配置</p>';
+			return;
+		}
+		listEl.innerHTML = '';
+		for (const c of configs) {
+			const row = document.createElement('div');
+			row.className = 'list-row';
+			row.innerHTML = `
+				<div class="list-info">
+					<strong>${esc(c.alias)}</strong>
+					<small>${esc(c.bucket)} / ${esc(c.prefix || '')} · ${esc(c.region)}</small>
+				</div>
+				<div class="list-actions">
+					<button class="btn sm edit">编辑</button>
+					<button class="btn sm danger del">删除</button>
+				</div>`;
+			row.querySelector('.edit')!.addEventListener('click', () => edit(c));
+			row.querySelector('.del')!.addEventListener('click', () => del(c));
+			listEl.appendChild(row);
+		}
+	}
+
+	function showForm() { form.hidden = false; formHint.hidden = true; msg.textContent = ''; }
+	function hideForm() { form.hidden = true; formHint.hidden = false; form.reset(); f.id.value = ''; }
+
+	function startNew() {
+		hideForm();
+		showForm();
+		formTitle.textContent = '新建配置';
+		f.secret.required = true;
+		f.secret.placeholder = '必填';
+	}
+
+	function edit(c: Config) {
+		showForm();
+		formTitle.textContent = '编辑配置';
+		f.id.value = String(c.id);
+		f.alias.value = c.alias;
+		f.region.value = c.region;
+		f.bucket.value = c.bucket;
+		f.prefix.value = c.prefix || '';
+		f.akid.value = c.access_key_id;
+		f.secret.value = '';
+		f.secret.required = false;
+		f.secret.placeholder = '留空表示不修改';
+	}
+
+	async function del(c: Config) {
+		if (!confirm(`删除配置「${c.alias}」？其缓存邮件也会被清除。`)) return;
+		const res = await fetch(`/api/configs/${c.id}`, { method: 'DELETE' });
+		if (res.ok) { hideForm(); load(); }
+		else alert('删除失败');
+	}
+
+	form.addEventListener('submit', async (e) => {
+		e.preventDefault();
+		msg.textContent = '保存中…';
+		const payload = {
+			alias: f.alias.value, region: f.region.value, bucket: f.bucket.value,
+			prefix: f.prefix.value, accessKeyId: f.akid.value, secretAccessKey: f.secret.value,
+		};
+		const id = f.id.value;
+		const res = await fetch(id ? `/api/configs/${id}` : '/api/configs', {
+			method: id ? 'PUT' : 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(payload),
+		});
+		const data = (await res.json()) as { error?: string };
+		if (!res.ok) { msg.textContent = '失败：' + (data.error || res.status); return; }
+		hideForm();
+		load();
+	});
+
+	document.getElementById('new-btn')!.addEventListener('click', startNew);
+	document.getElementById('cancel-btn')!.addEventListener('click', hideForm);
+	load();
+</script>
+
+<style>
+	.page { max-width: 1000px; margin: 0 auto; padding: 24px; }
+	.page-head { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+	.page-head h1 { font-size: 20px; margin: 0; }
+	.back { text-decoration: none; }
+	.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+	.col-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+	h2 { font-size: 15px; margin: 0; }
+	.muted { color: var(--muted); }
+	.hint { padding: 16px 0; }
+
+	.list { display: flex; flex-direction: column; gap: 8px; }
+	.list-row {
+		display: flex; align-items: center; justify-content: space-between;
+		background: var(--panel); border: 1px solid var(--border);
+		border-radius: 10px; padding: 12px 14px;
+	}
+	.list-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+	.list-info small { color: var(--muted); }
+	.list-actions { display: flex; gap: 6px; flex: none; }
+
+	.form {
+		display: flex; flex-direction: column; gap: 12px;
+		background: var(--panel); border: 1px solid var(--border);
+		border-radius: 10px; padding: 20px;
+	}
+	.form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+	.form input {
+		padding: 9px 11px; border: 1px solid var(--border);
+		border-radius: 8px; font-size: 14px; color: var(--text);
+	}
+	.form-actions { display: flex; gap: 8px; margin-top: 4px; }
+	.msg { margin: 0; font-size: 13px; color: var(--muted); }
+
+	.btn {
+		padding: 8px 14px; border: 1px solid var(--border);
+		background: var(--panel); border-radius: 8px; color: var(--text);
+	}
+	.btn:hover { border-color: var(--accent); }
+	.btn.sm { padding: 5px 10px; font-size: 13px; }
+	.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+	.btn.danger { color: var(--danger); }
+	.btn.danger:hover { border-color: var(--danger); }
+</style>

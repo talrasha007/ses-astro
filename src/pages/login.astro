@@ -1,0 +1,72 @@
+---
+import Layout from '../layouts/Layout.astro';
+export const prerender = false;
+const hasError = Astro.url.searchParams.has('error');
+---
+
+<Layout title="登录 · SES 邮件查看器">
+	<main class="wrap">
+		<form class="card" method="POST" action="/api/login">
+			<h1>SES 邮件查看器</h1>
+			<p class="hint">请输入访问口令</p>
+			<input
+				type="password"
+				name="password"
+				placeholder="访问口令"
+				autocomplete="current-password"
+				autofocus
+				required
+			/>
+			{hasError && <p class="error">口令错误，请重试</p>}
+			<button type="submit">登录</button>
+		</form>
+	</main>
+</Layout>
+
+<style>
+	.wrap {
+		min-height: 100vh;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 24px;
+	}
+	.card {
+		width: 320px;
+		background: var(--panel);
+		border: 1px solid var(--border);
+		border-radius: 12px;
+		padding: 28px 24px;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		box-shadow: 0 6px 24px rgba(0, 0, 0, 0.05);
+	}
+	h1 {
+		margin: 0;
+		font-size: 18px;
+	}
+	.hint {
+		margin: 0;
+		color: var(--muted);
+	}
+	input {
+		padding: 10px 12px;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		font-size: 14px;
+	}
+	button {
+		padding: 10px 12px;
+		border: none;
+		border-radius: 8px;
+		background: var(--accent);
+		color: #fff;
+		font-weight: 600;
+	}
+	.error {
+		margin: 0;
+		color: var(--danger);
+		font-size: 13px;
+	}
+</style>
