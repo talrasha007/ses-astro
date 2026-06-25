@@ -22,13 +22,17 @@
 3. 建本地 D1 表：`npx wrangler d1 migrations apply ses-astro --local`
 4. 启动：`npm run dev`（默认 http://localhost:4321）
 
-## 部署到 Cloudflare Pages
+## 部署到 Cloudflare Workers
+
+本项目用 `@astrojs/cloudflare` 适配器，构建产物是 Workers Static Assets（`dist/server/` + `dist/client/`），用 `wrangler deploy` 部署（不是 `pages deploy`）。
 
 1. 创建 D1 数据库：`npx wrangler d1 create ses-astro`，把返回的 `database_id` 填入 `wrangler.jsonc`（替换 `REPLACE_WITH_D1_DATABASE_ID`）。
 2. 应用迁移到远端：`npx wrangler d1 migrations apply ses-astro --remote`
-3. 设置生产机密（Pages 项目环境变量，或 `npx wrangler secret put <NAME>`）：`APP_PASSWORD`、`ENCRYPTION_KEY`、`SESSION_SECRET`。
+3. 设置生产机密（`npx wrangler secret put <NAME>` 或 Worker 控制台）：`APP_PASSWORD`、`ENCRYPTION_KEY`、`SESSION_SECRET`。
    > `ENCRYPTION_KEY` 一旦用于加密就不能更改，否则已存配置无法解密。
-4. 构建并部署：`npm run build` 然后 `npx wrangler pages deploy`。
+4. 构建并部署：`npm run build` 然后 `npx wrangler deploy --config dist/server/wrangler.json`。
+
+> 发布 GitHub Release 会触发 [.github/workflows/deploy.yml](.github/workflows/deploy.yml) 自动完成上述 2 / 4 步。
 
 ## 使用
 

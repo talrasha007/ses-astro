@@ -1,13 +1,16 @@
-# Deploys to Cloudflare Pages when a GitHub Release is published.
+# Deploys to Cloudflare Workers when a GitHub Release is published.
+#
+# The @astrojs/cloudflare adapter builds a Workers Static Assets bundle
+# (dist/server/entry.mjs + dist/client/ + a generated dist/server/wrangler.json),
+# so we deploy with `wrangler deploy`, not `wrangler pages deploy`.
 #
 # Required repository secrets:
-#   CLOUDFLARE_API_TOKEN  - token with "Cloudflare Pages: Edit" + "D1: Edit" permissions
+#   CLOUDFLARE_API_TOKEN  - token with "Workers Scripts: Edit" + "D1: Edit" permissions
 #   CLOUDFLARE_ACCOUNT_ID - your Cloudflare account id
 #   D1_DATABASE_ID        - the D1 database id (injected into wrangler.jsonc at deploy time)
 #
 # The app's own runtime secrets (APP_PASSWORD / ENCRYPTION_KEY / SESSION_SECRET)
-# must be set on the Cloudflare Pages project (Settings → Environment variables),
-# not here.
+# must be set on the Worker (`wrangler secret put ...` or the dashboard), not here.
 name: Deploy
 
 on:
@@ -49,5 +52,5 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Deploy to Cloudflare Pages
-        run: npx wrangler pages deploy ./dist --project-name ses-astro --branch "${{ github.event.repository.default_branch }}"
+      - name: Deploy to Cloudflare Workers
+        run: npx wrangler deploy --config dist/server/wrangler.json
