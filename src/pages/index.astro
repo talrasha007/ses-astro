@@ -141,7 +141,7 @@ export const prerender = false;
 			const item = document.createElement('button');
 			item.className = 'email';
 			item.innerHTML = `
-				<span class="email-to">${esc(mail.to_addr) || '(无收件人)'}</span>
+				<span class="email-from">${esc(mail.from_addr) || '(无发件人)'}</span>
 				<span class="email-subject">${esc(mail.subject) || '(无标题)'}</span>
 				<span class="email-date">${fmtDate(mail.date)}</span>`;
 			item.addEventListener('click', () => {
@@ -209,7 +209,7 @@ export const prerender = false;
 	loadConfigs();
 </script>
 
-<style>
+<style is:global>
 	.app {
 		display: grid;
 		grid-template-columns: 320px 1fr;
@@ -246,6 +246,9 @@ export const prerender = false;
 	}
 	.placeholder.small { padding: 8px 12px; font-size: 13px; }
 
+	.cfg + .cfg {
+		padding-top: 15px;
+	}
 	.cfg-row {
 		display: flex;
 		align-items: center;
@@ -253,19 +256,26 @@ export const prerender = false;
 	}
 	.cfg-toggle {
 		flex: 1;
+		min-width: 0;
 		display: flex;
 		align-items: center;
 		gap: 6px;
 		background: none;
 		border: none;
-		padding: 8px 6px;
+		padding: 10px 6px;
 		text-align: left;
 		border-radius: 6px;
 		color: var(--text);
-		font-weight: 600;
 	}
 	.cfg-toggle:hover { background: var(--bg); }
-	.caret { width: 12px; color: var(--muted); font-size: 11px; }
+	.caret { width: 12px; flex: none; color: var(--muted); font-size: 11px; }
+	.alias {
+		font-weight: 800;
+		font-size: 18px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	.cfg-refresh {
 		background: none;
 		border: none;
@@ -281,23 +291,34 @@ export const prerender = false;
 	.emails {
 		display: flex;
 		flex-direction: column;
-		padding-left: 10px;
 	}
 	.email {
-		display: grid;
-		gap: 2px;
+		display: block;
+		width: 100%;
 		background: none;
 		border: none;
-		border-left: 2px solid transparent;
+		border-left: 3px solid transparent;
 		text-align: left;
-		padding: 7px 10px;
-		border-radius: 0 6px 6px 0;
+		padding: 9px 14px;
 	}
+	.email + .email { border-top: 1px solid var(--border); }
 	.email:hover { background: var(--bg); }
-	.email.active { background: var(--accent-soft); border-left-color: var(--accent); }
-	.email-to { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-	.email-subject { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.email.active {
+		background: var(--accent);
+		border-left-color: #1e3a8a;
+	}
+	.email > span {
+		display: block;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.email-from { font-size: 12px; color: var(--muted); }
+	.email-subject { font-weight: 600; margin: 2px 0; }
 	.email-date { font-size: 11px; color: var(--muted); }
+	.email.active .email-subject { color: #fff; }
+	.email.active .email-from,
+	.email.active .email-date { color: rgba(255, 255, 255, 0.85); }
 
 	.reader { min-width: 0; display: flex; flex-direction: column; }
 	.reader-empty {
